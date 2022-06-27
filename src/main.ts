@@ -1,10 +1,11 @@
 import {
+  collision,
   distance,
   getRandomColor,
   randomIntFromRange,
-  collision,
 } from "./lib/utils";
 import "./style.css";
+import * as lilGui from "lil-gui";
 
 /**
  * Base
@@ -19,7 +20,7 @@ const c = canvas.getContext("2d") as CanvasRenderingContext2D;
 canvas.width = window.innerWidth;
 canvas.height = window.innerHeight;
 
-c.globalCompositeOperation = "overlay";
+const gui = new lilGui.GUI();
 
 /**
  * Variables
@@ -28,13 +29,32 @@ c.globalCompositeOperation = "overlay";
 const mouse = {
   x: window.innerWidth / 2,
   y: window.innerHeight / 2,
+  prevX: window.innerWidth / 2,
+  prevY: window.innerHeight / 2,
 };
+
+const params = {
+  reset: () => {
+    gui.reset();
+  },
+  gravity: 1,
+  bounce: 0.59,
+  maxRadius: 30,
+  maxMass: 1,
+  mouseRadius: 10,
+  mouseMass: 10,
+  mouseColor: "#000000",
+  showCursor: false,
+  cR: 1,
+}
 
 /**
  * Event Listeners
  */
 
 document.addEventListener("mousemove", (e) => {
+  mouse.prevX = mouse.x;
+  mouse.prevY = mouse.y;
   mouse.x = e.clientX;
   mouse.y = e.clientY;
 });
@@ -50,7 +70,7 @@ window.addEventListener("resize", () => {
  * Objects
  */
 
-export class Particle {
+export class Ball {
   x: number;
   y: number;
   radius: number;
@@ -65,18 +85,20 @@ export class Particle {
   constructor(
     x: number,
     y: number,
+    dx: number,
+    dy: number,
     radius: number,
     color: string | CanvasGradient | CanvasPattern,
-    mass: number,
+    mass?: number
   ) {
     this.x = x;
     this.y = y;
     this.color = color;
     this.velocity = {
-      x: (Math.random() - 0.5) * 5,
-      y: (Math.random() - 0.5) * 5,
+      x: dx,
+      y: dy,
     };
-    this.mass = mass;
+    this.mass = mass ?? 1;
     this.radius = radius;
     this.alpha = 0;
   }
@@ -84,55 +106,57 @@ export class Particle {
   draw() {
     c.beginPath();
     c.arc(this.x, this.y, this.radius, 0, Math.PI * 2, false);
-    c.save();
-    c.globalAlpha = this.alpha;
     c.fillStyle = this.color;
     c.fill();
-    c.restore();
-    c.strokeStyle = this.color;
-    c.stroke();
     c.closePath();
   }
 
-  update(particles: Particle[]) {
+  update() {
     if (
       canvas &&
-      (this.x <= 0 + this.radius || this.x >= canvas.width - this.radius)
+      (this.x <= 0 + this.radius - this.velocity.x ||
+        this.x >= canvas.width - this.radius - this.velocity.x)
     ) {
-      this.velocity.x = -this.velocity.x;
+      this.velocity.x = -this.velocity.x * params.bounce;
+    } else {
+      this.velocity.x;
     }
 
     if (
       canvas &&
-      (this.y <= 0 + this.radius || this.y >= canvas.height - this.radius)
+      (this.y <= 0 + this.radius - this.velocity.y ||
+        this.y >= canvas.height - this.radius - this.velocity.y)
     ) {
-      this.velocity.y = -this.velocity.y;
+      this.velocity.x *= 0.99;
+      this.velocity.y = -this.velocity.y * params.bounce;
+    } else {
+      this.velocity.y += params.gravity * this.mass;
     }
 
     this.x += this.velocity.x;
     this.y += this.velocity.y;
 
-    particles.forEach((particle) => {
-      if (particle === this) return;
+    this.draw();
+  }
+}
 
+class CursorBall extends Ball {
+  update(balls?: Ball[]) {
+    this.velocity.x = this.x - mouse.prevX;
+    this.velocity.y = this.y - mouse.prevY;
+    this.x = mouse.x;
+    this.y = mouse.y;
+
+    balls?.forEach((ball) => {
       if (
-        distance(this.x, this.y, particle.x, particle.y) -
-          (this.radius + particle.radius) <
-        0
+        distance(this.x, this.y, ball.x, ball.y) <
+        this.radius + ball.radius
       ) {
-        collision(this, particle, 1);
+        collision(this, ball, params.cR);
       }
     });
 
-    if (distance(mouse.x, mouse.y, this.x, this.y) < 50 && 0.2) {
-      this.alpha += 0.05;
-    } else if (this.alpha > 0) {
-      this.alpha -= 0.05;
-
-      this.alpha = Math.max(0, this.alpha);
-    }
-
-    this.draw();
+    if (params.showCursor) this.draw();
   }
 }
 
@@ -140,52 +164,49 @@ export class Particle {
  * Implementation
  */
 
-let particles: Particle[];
+let cursorBall: CursorBall;
+let balls: Ball[];
 
 const init = () => {
-  particles = [];
-
-  const maxRadius = 20;
-  const maxParticles =
-    (canvas.width * canvas.height) / (Math.PI * Math.pow(maxRadius, 2));
-
-  for (let i = 0; i < maxParticles; i++) {
-    const mass = Math.random();
-    const radius = maxRadius * mass;
-    const alpha = (1 - mass) / 10;
+  cursorBall = new CursorBall(mouse.x, mouse.y, 0, 0, params.mouseRadius, params.mouseColor, params.mouseMass);
+  balls = new Array(100).fill(null).map(() => {
+    const mass = Math.random() * params.maxMass;
+    const radius = params.maxRadius * mass / params.maxMass;
     let x = randomIntFromRange(radius, canvas.width - radius);
     let y = randomIntFromRange(radius, canvas.height - radius);
-    const color = getRandomColor(alpha);
+    const dx = (Math.random() - 0.5) * 5;
+    const dy = (Math.random() - 0.5) * 5;
+    const color = getRandomColor();
 
-    if (i !== 0) {
-      for (let j = 0; j < particles.length; j++) {
-        if (
-          distance(x, y, particles[j].x, particles[j].y) -
-            (radius + particles[j].radius) <
-          0
-        ) {
-          x = randomIntFromRange(radius, canvas.width - radius);
-          y = randomIntFromRange(radius, canvas.height - radius);
-
-          j = -1;
-        }
-      }
-    }
-
-    particles.push(new Particle(x, y, radius, color, mass));
-  }
+    return new Ball(x, y, dx, dy, radius, color, mass);
+  });
 };
+
+/**
+ * GUI
+ */
+
+gui.add(params, "reset");
+gui.add(params, "gravity").min(0).max(5).step(0.01);
+gui.add(params, "bounce").min(0).max(2).step(0.001);
+gui.add(params, "maxRadius").min(5).max(50).step(1).onFinishChange(init);
+gui.add(params, "maxMass").min(0.1).max(10).step(0.1).onFinishChange(init);
+gui.add(params, "mouseRadius").min(1).max(100).step(1).onFinishChange((v: number) => cursorBall.radius = v);
+gui.add(params, "mouseMass").min(0.1).max(100).step(0.1).onFinishChange((v: number) => cursorBall.mass = v);
+gui.addColor(params, "mouseColor").onChange((v: string) => {
+  cursorBall.color = v;
+  params.showCursor = true;
+});
+gui.add(params, "showCursor");
+gui.add(params, "cR").min(0).max(1).step(0.001);
 
 const animate = () => {
   requestAnimationFrame(animate);
-  // c.clearRect(0, 0, canvas.width, canvas.height);
+  c.clearRect(0, 0, canvas.width, canvas.height);
 
-  c.font = `${canvas.width / 15}px serif`;
-  c.textAlign = "center";
-  c.fillStyle = "rgba(255, 255, 255, 0.05)";
-  c.fillText("HTML Canvas Boilerplate", canvas.width / 2, canvas.height / 2);
+  cursorBall.update(balls);
 
-  particles.forEach((object: Particle) => object.update(particles));
+  balls.forEach((ball) => ball.update());
 };
 
 init();

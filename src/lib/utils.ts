@@ -1,4 +1,4 @@
-import { Particle } from "../main";
+import { Ball } from "../main";
 
 export const getRandomColor = (alpha?: number) => {
   const r = Math.random() * 255;
@@ -25,7 +25,7 @@ export const rotate = (velocity: { x: number; y: number }, angle: number) => {
   };
 };
 
-export const collision = (particle1: Particle, particle2: Particle, cR = 1) => {
+export const collision = (particle1: Ball, particle2: Ball, cR = 1) => {
   const xVelocityDiff = particle1.velocity.x - particle2.velocity.x;
   const yVelocityDiff = particle1.velocity.y - particle2.velocity.y;
 
